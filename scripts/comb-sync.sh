@@ -2,11 +2,25 @@
 
 . /comb-api-support.sh
 
+API_REPO_ROOT="$(jq -r '.repo_root//empty' $COMB_API_JSON)"
+API_REPO_PREFIX="$(jq -r '.repo_prefix//empty' $COMB_API_JSON)"
+API_REPO_NAME="$(jq -r '.repo//empty' $COMB_API_JSON)"
+
+export COMB_REPO_PREFIX="${COMB_REPO_PREFIX:-/${API_REPO_NAME:+$API_REPO_NAME/}${API_REPO_PREFIX#/}}"
+
+COMB_REPO_ROOT="${COMB_REPO_ROOT:-API_REPO_ROOT}"
+[ -z "$COMB_REPO_ROOT" ] && {
+	COMB_REPO_ROOT='hub.c.163.com'
+	[ ! -z "$COMB_REPO_PREFIX" ] && [[ "$COMB_REPO_PREFIX" = *'/'* ]] && [[ "$COMB_REPO_PREFIX" != '/'* ]] && \
+		COMB_REPO_ROOT="${COMB_REPO_PREFIX%%/*}"
+}
+[ ! -z "$COMB_REPO_ROOT" ] && export COMB_REPO_ROOT="${COMB_REPO_ROOT%/}/"
+
+export CONSUL_ENDPOINT=${CONSUL_ENDPOINT:-127.0.0.1:8500}
+
 hcl2json(){
 	json2hcl -reverse < "$1"
 }
-
-CONSUL_ENDPOINT=${CONSUL_ENDPOINT:-127.0.0.1:8500}
 
 INFRA_CONF=$1
 [ -z "$INFRA_CONF" ] && echo '$INFRA_CONF required.' && exit 1
@@ -127,7 +141,7 @@ init_action(){
 	local INIT_JOIN INIT_JOIN_WAN
 	local INIT_LINKS
 	if [ -f "$SERVICE_DEF" ]; then
-		IMAGE_PATH="$(jq -r '(.image//empty)|sub("^//";env.COMB_REPO_PREFIX//"")' $SERVICE_DEF)"
+		IMAGE_PATH="$(jq -r '(.image//empty)|sub("^//";env.COMB_REPO_PREFIX//"")|sub("^/";env.COMB_REPO_ROOT//"")' $SERVICE_DEF)"
 		IMAGE_REPO_NAME=${IMAGE_PATH##*/}; IMAGE_REPO_NAME=${IMAGE_REPO_NAME%%:*}
 		TRIGGER="$(jq -r '.trigger//empty' $SERVICE_DEF)"
 		if [ ! -z "$TRIGGER" ] && [ ! -z "$IMAGE_REPO_NAME" ]; then

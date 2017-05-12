@@ -7,7 +7,6 @@
 ```
     // 定义服务：默认创建无状态服务，服务名包含"-vm"后缀则创建有状态服务
     service "consul-0-vm" { 
-        description = "Consul-1"
 
         // 镜像地址，必需，无状态服务支持更新
         // * 如果同时设置了trigger， 可不填写tag以避免trigger触发前创建服务， 如 image = "hub.c.163.com/wyzcdevops/zc-consul" 
@@ -19,7 +18,7 @@
 
         //设置环境变量，无状态服务支持更新
         env = { 
-            TIME_ZONE = "Asia/Shanghai"
+            TZ = "Asia/Shanghai"
         }
 
         // 仅用于初始化的环境变量，作为变量缺省值，生效优先级低于 env，仅在蜂巢服务缺失变量时进行更新
@@ -96,118 +95,4 @@
 - 修改服务定义中支持更新的属性（所有服务的ports，无状态服务的 image、 env、 spec 和 replicas），对应蜂巢服务属性也被更新
 - 无状态服务的 env、 spec 和 replicas 属性如果没有设置， 则只在创建服务时使用默认值
 - 移除服务定义条目，对应的蜂巢服务被删除
-- 注意清空或删除 `<namespace>.conf` 不会删除之前创建的服务。  
-  
 
-镜像触发器定义: /config/comb/triggers.properties 
----
-配置规则如下：
-```
-# 定义方式：触发器名称=镜像版本匹配的模式(包含*作为通配符)
-# * 如果触发器名称以SNAPSHOT结尾，代表临时镜像，临时镜像在仓库中仅保留最新版本
-develop-SNAPSHOT=develop.r*
-release-SNAPSHOT=release-*.r*
-hotfix-SNAPSHOT=hotfix-*.r*
-tags=v*
-```
-说明：
-- 读取容器内 /webhooks 文件 或 访问 `http://<容器地址>/webhooks` 能获取以下内容
-
->
-```
-*:develop.r*=http://<container-ip>/trigger/develop-SNAPSHOT?{}
-*:hotfix-*.r*=http://<container-ip>/trigger/hotfix-SNAPSHOT?{}
-*:release-*.r*=http://<container-ip>/trigger/release-SNAPSHOT?{}
-*:v*=http://<container-ip>/trigger/tags?{}
-```
-
-- 请求该地址可以更新镜像版本： `http://<container-ip>/trigger/<TRIGGER>?<版本全路径>`  
-  如  `curl 'http://127.0.0.1/trigger/tags?hub.c.163.com/wyzcdevops/app-test:v1.0.1'`
-- 镜像版本被更新后，所有绑定该触发器的服务镜像版本被同步更新；对于临时镜像，仓库中与模式匹配的所有其他版本镜像自动被删除（除非该版本是其他触发器的当前镜像）
-  
-  
-  
-  
-附：infrastructure.conf 解析规则 
----
-```
-// 定义空间
-// * 注意移除空间定义后不会自动删除已创建的空间
-namespace "wyzc-fnd-services" {
-
-    // 定义服务：默认创建无状态服务，服务名包含"-vm"后缀则创建有状态服务
-    service "consul-0-vm" { 
-        description = "Consul-1"
-
-        // 镜像地址，必需，无状态服务支持更新
-        // * 如果同时设置了trigger， 可不填写tag以避免trigger触发前创建服务， 如 image = "hub.c.163.com/wyzcdevops/zc-consul" 
-        image = "hub.c.163.com/wyzcdevops/zc-consul:latest" 
-        
-        // 绑定的服务端口号，JSON数组，必需（且至少包含一项）
-        // * 默认绑定协议tcp
-        ports = [8500,"8301/tcp","8301/udp"]  
-        
-        //设置环境变量，无状态服务支持更新
-        env = { 
-            CONSUL_DATACENTER = "wyzc"
-            CONSUL_NAME = "consul"
-        }
-
-        // 容器规格，创建时默认2，无状态服务支持更新
-        // * 规格选项：1-微小型/CNY0.049/1CPU/640M, 2-小型/CNY0.06/1CPU/1G, 3-中型/CNY0.19/2CPU/2G, 
-        // *           4-大型/CNY0.25/2CPU/4G, 5-豪华型/CNY0.52/4CPU/8G, 6-旗舰型/CNY1.02/8CPU/16G, 
-        // *           7-超级旗舰型/CNY3.32/16CPU/64G
-        // spec = 2
-        
-        // 副本数，创建时默认1，无状态服务支持更新
-        // replicas = 1
-
-        // 关联镜像触发器：如果设置，触发器中对应仓库的image属性覆盖为服务镜像地址
-        // trigger = "release-SNAPSHOT"
-    }
-
-    service "consul-1-vm" { 
-        // ...
-    }
-}
-
-namespace "wyzc-app-develop" {
-    service "nginx-web-develop" {
-        description = "Nginx Web Site"
-        image = "hub.c.163.com/wyzcdevops/nginx-web:latest" 
-        ports = [80, 443]  
-        env = { 
-            CONSUL_DATACENTER = "wyzc"
-            CONSUL_NAME = "nginx-web-develop"
-        }
-        trigger = "develop-SNAPSHOT"
-    }
-}
-
-// 定义镜像触发器
-trigger "develop-SNAPSHOT" {
-    // 仓库名称
-    "nginx-web" = {
-        // 镜像地址
-        image = "hub.c.163.com/wyzcdevops/nginx-web:develop.r571"
-        // 镜像版本删除规则，如果设置了snapshot，在image每次更新后自动删除仓库中与规则匹配的所有其他镜像
-        snapshot = "develop.r*"
-    }
-    "zc-consul" = {
-        image = "hub.c.163.com/wyzcdevops/zc-consul:develop.r571"
-    }
-}
-
-trigger "release-SNAPSHOT" {
-    "nginx-web" = {
-        image = "hub.c.163.com/wyzcdevops/nginx-web:release-v1.13.r154"
-        snapshot = "release-v*.r*"
-    }
-}
-
-trigger "tags" {
-    "nginx-web" = {
-        image = "hub.c.163.com/wyzcdevops/nginx-web:v1.2"
-    }
-}
-```

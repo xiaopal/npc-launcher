@@ -37,7 +37,8 @@ api_http(){
 			echo '$COMB_API_JSON/.comb-api.json required'>&2
 			return 1
 		}
-		do_http POST "$COMB_API_HOST/api/v1/token" "$(cat $COMB_API_JSON)" -H 'Content-Type: application/json'| check_http_response '.body' false > $COMB_API_TOKEN && return 0 || {
+		
+		do_http POST "$COMB_API_HOST/api/v1/token" "$(jq -c '{app_key:.app_key,app_secret:.app_secret}' $COMB_API_JSON)" -H 'Content-Type: application/json'| check_http_response '.body' false > $COMB_API_TOKEN && return 0 || {
 			 cat $COMB_API_TOKEN >&2 && echo >&2 && rm -f $COMB_API_TOKEN
 			 return 1
 		}
