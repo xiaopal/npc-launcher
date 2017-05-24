@@ -61,7 +61,7 @@ init_infra(){
 				| ( .key | [ gsub("\\{(?<part>[^\\}]+)\\}";"\(.part|split(",")[])") ] ) as $names 
 				| .value as $service
 				| $names | keys[]| $service 
-					+ {name : $names[.], group : (if . > 0 then {index: ., prev: $names[.-1]} else {index: .} end) } 
+					+ {name : $names[.], group : (if . > 0 then {items: $names, prev: $names[.-1]} else {items: $names} end) } 
 					+ {namespace: $namespace, type:"service"})]
             | map(. + {code: "\(.namespace).\(.name)"} | {key: .code, value: .})| from_entries as $entries
         | def extend($from):
@@ -140,7 +140,11 @@ init_action(){
 	local INIT_ENVS ENVS FULL_ENVS
 	local INIT_JOIN INIT_JOIN_WAN
 	local INIT_LINKS
-	if [ -f "$SERVICE_DEF" ]; then
+    local SERVICE_GROUP
+
+    if [ -f "$SERVICE_DEF" ]; then
+	    SERVICE_GROUP="$(jq -r 'try .group.items|join(",")' $SERVICE_DEF)"
+
 		IMAGE_PATH="$(jq -r '(.image//empty)|sub("^//";env.COMB_REPO_PREFIX//"")|sub("^/";env.COMB_REPO_ROOT//"")' $SERVICE_DEF)"
 		IMAGE_REPO_NAME=${IMAGE_PATH##*/}; IMAGE_REPO_NAME=${IMAGE_REPO_NAME%%:*}
 		TRIGGER="$(jq -r '.trigger//empty' $SERVICE_DEF)"
@@ -179,10 +183,11 @@ init_action(){
 		local SERVICE_LINKS="$INFRA_DIR/$SERVICE_CODE.links.json"
 		[ -f $SERVICE_LINKS ] && INIT_LINKS="$(jq -Ssc 'map({key:.name, value:(.ip//.service)})|from_entries' $SERVICE_LINKS)"
 
-		INIT_ENVS="$(export SERVICE_NAME INIT_JOIN INIT_JOIN_WAN INIT_LINKS; jq -Sc '
+		INIT_ENVS="$(export SERVICE_NAME INIT_JOIN INIT_JOIN_WAN INIT_LINKS SERVICE_GROUP; jq -Sc '
 				{ CONSUL_NAME : env.SERVICE_NAME }
 				+ (if env.INIT_LINKS|length>0 then (try env.INIT_LINKS | fromjson//{} | with_entries(.value|=null)) else {} end)
 				+ (.init_env//{}) 
+				+ (if env.SERVICE_GROUP|length>0 then {SERVICE_GROUP:env.SERVICE_GROUP, SERVICE_GROUP_ADDRS:""} else {} end) 
 				+ (if env.INIT_JOIN|length>0 then {JOIN:null} else {} end) 
 				+ (if env.INIT_JOIN_WAN|length>0 then {JOIN_WAN:null} else {} end)
 			' $SERVICE_DEF)"
@@ -213,7 +218,7 @@ init_action(){
 
 	[ ! -z "$SERVICE_ACTION" ] && ( 
 		export SERVICE_ACTION SERVICE_CODE SERVICE_NAME NAMESPACE SERVICE_STATEFUL
-		export SERVICE_ID CONTAINER_ID
+		export SERVICE_ID CONTAINER_ID SERVICE_GROUP
 		export IMAGE_PATH IMAGE_REPO_NAME IMAGE_TAG_NAME TRIGGER UPDATE_READY_SECONDS
 		export SPEC_ID REPLICAS PORTS LOG_DIRS 
 		export INET_ADDR INET_ADDR_IP
@@ -240,6 +245,8 @@ init_action(){
 			port_maps : ((try env.PORTS | fromjson)//[]),
 			log_dirs : ((try env.LOG_DIRS | fromjson)//[]),
 			envs : ((try env.FULL_ENVS | fromjson)//{}),
+
+			group : env.SERVICE_GROUP,
 
 			init_join : (if env.INIT_JOIN | length>0 then env.INIT_JOIN else null end),
 			init_join_wan : (if env.INIT_JOIN_WAN | length>0 then env.INIT_JOIN_WAN else null end),
@@ -364,7 +371,7 @@ update_service(){
 		}
 	fi
 
-	local CONSUL_JOIN CONSUL_JOIN_WAN INIT_JOIN INIT_JOIN_WAN ENV_LINKS
+	local CONSUL_JOIN CONSUL_JOIN_WAN INIT_JOIN INIT_JOIN_WAN ENV_LINKS ENV_GROUP_ADDRS
 	prepare_envs(){
 		INIT_JOIN="$(jq -r .init_join//empty $SERVICE_STAGE)"
 		if [ ! -z "$INIT_JOIN" ] && [ -z "$(jq -r '.envs["JOIN"]//empty' $SERVICE_STAGE)" ]; then
@@ -390,10 +397,19 @@ update_service(){
 			ENV_LINKS="$(while read -r LINK_ENTRY; do
 				local LINK_NAME="$(jq -r .name <<<"$LINK_ENTRY")" LINK_IP="$(jq -r .ip//empty <<<"$LINK_ENTRY")" LINK_SERVICE="$(jq -r .service//empty <<<"$LINK_ENTRY")"
 				[ -z "$LINK_IP"] && [ ! -z "$LINK_SERVICE" ] && check_service "$LINK_SERVICE" \
-					&& LINK_IP="$(grep -oP 'ip://\K.+' "$INFRA_DIR/$LINK_SERVICE.check.json" | sort -R | head -1)"
+					&& LINK_IP="$(grep -E '^ip://' "$INFRA_DIR/$LINK_SERVICE.check.json" | cut -c 6- | sort -R | head -1)"
 				( export LINK_NAME LINK_IP; jq -nc '{key: env.LINK_NAME, value:env.LINK_IP }' )
 			done < "$INFRA_DIR/$SERVICE_CODE.links.json" | jq -Ssc 'from_entries' )"
 		fi
+
+		if [ ! -z "$(jq -r '.group//empty' $SERVICE_STAGE)" ]; then
+			ENV_GROUP_ADDRS="$(jq -r 'try .group|split(",")|.[]' $SERVICE_STAGE | while read -r GROUP_ITEM; do
+				local GROUP_ITEM_SERVICE="$NAMESPACE.$GROUP_ITEM"
+				check_service "$GROUP_ITEM_SERVICE" && grep -E '^ip://' "$INFRA_DIR/$GROUP_ITEM_SERVICE.check.json" | cut -c 6-
+			done | jq -R . | jq -rs 'join(",")')"
+		fi
+
+
 		return 0
 	}
 
@@ -415,7 +431,7 @@ update_service(){
 
 		# create service
 		local CREATE_SERVICE="$(
-			export NAMESPACE_ID INET_ADDR_ID CONSUL_JOIN CONSUL_JOIN_WAN ENV_LINKS
+			export NAMESPACE_ID INET_ADDR_ID CONSUL_JOIN CONSUL_JOIN_WAN ENV_LINKS ENV_GROUP_ADDRS
 			jq -c '{
 				bill_info:"default",
 				service_info: ({
@@ -437,6 +453,7 @@ update_service(){
 					envs: ((
 						.envs 
 						+ (if env.ENV_LINKS | length>0 then (try env.ENV_LINKS | fromjson)//{} else {} end)
+						+ (if env.ENV_GROUP_ADDRS | length>0 then { SERVICE_GROUP_ADDRS: env.ENV_GROUP_ADDRS } else {} end)
 						+ (if env.CONSUL_JOIN | length>0 then {JOIN : env.CONSUL_JOIN} else {} end)
 						+ (if env.CONSUL_JOIN_WAN | length>0 then {JOIN_WAN : env.CONSUL_JOIN_WAN} else {} end)
 						)|to_entries//[]),
@@ -482,12 +499,13 @@ update_service(){
 		if init_update && [ ! -z "$(jq -r .update_envs//empty $SERVICE_STAGE)" ]; then
 			prepare_envs || return 2
 			local UPDATE_STATELESS="$(
-				export CONSUL_JOIN CONSUL_JOIN_WAN ENV_LINKS
+				export CONSUL_JOIN CONSUL_JOIN_WAN ENV_LINKS ENV_GROUP_ADDRS
 				jq -c '{container_infos: [{
 					container_id: .container_id, 
 					envs: ((
 						.envs 
 						+ (if env.ENV_LINKS | length>0 then (try env.ENV_LINKS | fromjson)//{} else {} end)
+						+ (if env.ENV_GROUP_ADDRS | length>0 then { SERVICE_GROUP_ADDRS: env.ENV_GROUP_ADDRS } else {} end)
 						+ (if env.CONSUL_JOIN | length>0 then {JOIN : env.CONSUL_JOIN} else {} end)
 						+ (if env.CONSUL_JOIN_WAN | length>0 then {JOIN_WAN : env.CONSUL_JOIN_WAN} else {} end)
 						)|to_entries//[]),
@@ -614,7 +632,7 @@ sync(){
 	done
 	
 	if [ -z "$SYNC_STATUS" ] && [ -f "$INFRA_DIR/SYNC.destroy.json" ]; then
-		if [ ! -z "$(find $INFRA_DIR -name '*.def.json' -print -quit)" ]; then
+		if [ ! -z "$(find $INFRA_DIR -name '*.def.json' -print)" ]; then
 			while read -r SERVICE_CODE; do
 				update_service "$SERVICE_CODE" || SYNC_STATUS=1
 			done < "$INFRA_DIR/SYNC.destroy.json"
