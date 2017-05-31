@@ -61,7 +61,7 @@ init_infra(){
 				| ( .key | [ gsub("\\{(?<part>[^\\}]+)\\}";"\(.part|split(",")[])") ] ) as $names 
 				| .value as $service
 				| $names | keys[]| $service 
-					+ {name : $names[.], group : (if . > 0 then {items: $names, prev: $names[.-1]} else {items: $names} end) } 
+					+ {name : $names[.], group : (if . > 0 then {names: $names, index: ., prev: $names[.-1]} else {names: $names, index: .} end) } 
 					+ {namespace: $namespace, type:"service"})]
             | map(. + {code: "\(.namespace).\(.name)"} | {key: .code, value: .})| from_entries as $entries
         | def extend($from):
@@ -140,10 +140,11 @@ init_action(){
 	local INIT_ENVS ENVS FULL_ENVS
 	local INIT_JOIN INIT_JOIN_WAN
 	local INIT_LINKS
-    local SERVICE_GROUP
+    local SERVICE_GROUP SERVICE_GROUP_INDEX
 
     if [ -f "$SERVICE_DEF" ]; then
-	    SERVICE_GROUP="$(jq -r 'try .group.items|join(",")' $SERVICE_DEF)"
+	    SERVICE_GROUP="$(jq -r 'try .group.names|join(",")' $SERVICE_DEF)"
+	    SERVICE_GROUP_INDEX="$(jq -r '.group.index//empty' $SERVICE_DEF)"
 
 		IMAGE_PATH="$(jq -r '(.image//empty)|sub("^//";env.COMB_REPO_PREFIX//"")|sub("^/";env.COMB_REPO_ROOT//"")' $SERVICE_DEF)"
 		IMAGE_REPO_NAME=${IMAGE_PATH##*/}; IMAGE_REPO_NAME=${IMAGE_REPO_NAME%%:*}
@@ -183,19 +184,19 @@ init_action(){
 		local SERVICE_LINKS="$INFRA_DIR/$SERVICE_CODE.links.json"
 		[ -f $SERVICE_LINKS ] && INIT_LINKS="$(jq -Ssc 'map({key:.name, value:(.ip//.service)})|from_entries' $SERVICE_LINKS)"
 
-		INIT_ENVS="$(export SERVICE_NAME INIT_JOIN INIT_JOIN_WAN INIT_LINKS SERVICE_GROUP; jq -Sc '
-				{ CONSUL_NAME : env.SERVICE_NAME }
+		INIT_ENVS="$(export SERVICE_NAME NAMESPACE INIT_JOIN INIT_JOIN_WAN INIT_LINKS SERVICE_GROUP SERVICE_GROUP_INDEX; jq -Sc '
+				{ NPC_SERVICE : env.SERVICE_NAME, NPC_NAMESPACE : env.NAMESPACE }
 				+ (if env.INIT_LINKS|length>0 then (try env.INIT_LINKS | fromjson//{} | with_entries(.value|=null)) else {} end)
 				+ (.init_env//{}) 
-				+ (if env.SERVICE_GROUP|length>0 then {SERVICE_GROUP:env.SERVICE_GROUP, SERVICE_GROUP_ADDRS:""} else {} end) 
-				+ (if env.INIT_JOIN|length>0 then {JOIN:null} else {} end) 
-				+ (if env.INIT_JOIN_WAN|length>0 then {JOIN_WAN:null} else {} end)
+				+ (if env.SERVICE_GROUP|length>0 then {NPC_GROUP:env.SERVICE_GROUP, NPC_GROUP_INDEX:env.SERVICE_GROUP_INDEX, NPC_GROUP_ADDRS:""} else {} end) 
+				+ (if env.INIT_JOIN|length>0 then {NPC_JOIN:null} else {} end) 
+				+ (if env.INIT_JOIN_WAN|length>0 then {NPC_JOIN_WAN:null} else {} end)
 			' $SERVICE_DEF)"
 
 		ENVS="$(export ENV_DATACENTER INIT_LINKS; 
 			jq -Sc '(.env//{})
-				+ (if env.ENV_DATACENTER|length>0 then {CONSUL_DATACENTER:env.ENV_DATACENTER} else {} end) 
-				+ (if env.INIT_LINKS|length>0 then {ENV_LINKS:(@base64 "\(env.INIT_LINKS)")} else {} end) 
+				+ (if env.ENV_DATACENTER|length>0 then {NPC_DATACENTER:env.ENV_DATACENTER} else {} end) 
+				+ (if env.INIT_LINKS|length>0 then {NPC_LINKS:(@base64 "\(env.INIT_LINKS)")} else {} end) 
 			' $SERVICE_DEF)"
 		
 		FULL_ENVS="$(export INIT_ENVS ENVS SERVICE_ENVS; jq -nSc '
@@ -453,9 +454,9 @@ update_service(){
 					envs: ((
 						.envs 
 						+ (if env.ENV_LINKS | length>0 then (try env.ENV_LINKS | fromjson)//{} else {} end)
-						+ (if env.ENV_GROUP_ADDRS | length>0 then { SERVICE_GROUP_ADDRS: env.ENV_GROUP_ADDRS } else {} end)
-						+ (if env.CONSUL_JOIN | length>0 then {JOIN : env.CONSUL_JOIN} else {} end)
-						+ (if env.CONSUL_JOIN_WAN | length>0 then {JOIN_WAN : env.CONSUL_JOIN_WAN} else {} end)
+						+ (if env.ENV_GROUP_ADDRS | length>0 then { NPC_GROUP_ADDRS: env.ENV_GROUP_ADDRS } else {} end)
+						+ (if env.CONSUL_JOIN | length>0 then {NPC_JOIN : env.CONSUL_JOIN} else {} end)
+						+ (if env.CONSUL_JOIN_WAN | length>0 then {NPC_JOIN_WAN : env.CONSUL_JOIN_WAN} else {} end)
 						)|to_entries//[]),
 					log_dirs: .log_dirs,
 					cpu_weight: 100, 
@@ -505,9 +506,9 @@ update_service(){
 					envs: ((
 						.envs 
 						+ (if env.ENV_LINKS | length>0 then (try env.ENV_LINKS | fromjson)//{} else {} end)
-						+ (if env.ENV_GROUP_ADDRS | length>0 then { SERVICE_GROUP_ADDRS: env.ENV_GROUP_ADDRS } else {} end)
-						+ (if env.CONSUL_JOIN | length>0 then {JOIN : env.CONSUL_JOIN} else {} end)
-						+ (if env.CONSUL_JOIN_WAN | length>0 then {JOIN_WAN : env.CONSUL_JOIN_WAN} else {} end)
+						+ (if env.ENV_GROUP_ADDRS | length>0 then { NPC_GROUP_ADDRS: env.ENV_GROUP_ADDRS } else {} end)
+						+ (if env.CONSUL_JOIN | length>0 then {NPC_JOIN : env.CONSUL_JOIN} else {} end)
+						+ (if env.CONSUL_JOIN_WAN | length>0 then {NPC_JOIN_WAN : env.CONSUL_JOIN_WAN} else {} end)
 						)|to_entries//[]),
 					log_dirs: .log_dirs, 
 					cpu_weight: 100, 
