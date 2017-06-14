@@ -6,31 +6,45 @@
 ```
 # 启动服务
 docker run -it --rm \
-	-e COMB_API_KEY="<蜂巢APP_KEY>" \
-	-e COMB_API_SECRET="<蜂巢APP_SECRET>" \
-	-e GIT_URL="<配置仓库GIT URL>" \
-	xiaopal/npc-launcher:latest
+    -e COMB_API_KEY="<蜂巢APP_KEY>" \
+    -e COMB_API_SECRET="<蜂巢APP_SECRET>" \
+    -e GIT_URL="https://github.com/xiaopal/npc-launch-repo.git" \
+	-p 9000:9000 \
+    xiaopal/npc-launcher:latest
 
 # 指定SSH KEY启动服务
 docker run -it --rm \
-	-e COMB_API_KEY="<蜂巢APP_KEY>" \
-	-e COMB_API_SECRET="<蜂巢APP_SECRET>" \
-	-e GIT_URL="<配置仓库GIT URL>" \
-	-v $HOME/.ssh:/.ssh \
-	xiaopal/npc-launcher:latest
+    -e COMB_API_KEY="<蜂巢APP_KEY>" \
+    -e COMB_API_SECRET="<蜂巢APP_SECRET>" \
+	-e GIT_URL=ssh://git@g.hz.netease.com:22222/cloud-wyzc/npc-launch-repo.git \
+    -v $HOME/.ssh:/.ssh \
+	-p 9000:9000 \
+    xiaopal/npc-launcher:latest
 
 # 特殊用法：根据模板在蜂巢创建服务，完成后退出
+# COMB_API_KEY="$(jq -r .app_key ~/.comb-api.json)" \
+# COMB_API_SECRET="$(jq -r .app_secret ~/.comb-api.json)" \
+COMB_API_KEY='<蜂巢APP_KEY>'
+COMB_API_SECRET='<蜂巢APP_SECRET>'
 cat<<EOF >infrastructure.conf
-namespace default {
-    service test-5 {
-        image = "/library/busybox:latest"
-        command = "sleep 600s"
-   }
+namespace "fnd" {
+	// 编排npc-launcher服务
+	service	"npc-launcher" {
+		stateful = true
+		image =	"/xiaopal/npc-launcher:latest"
+		spec = "C1M2S20"
+		ports =	[9000]
+		env {
+			COMB_API_KEY = "$COMB_API_KEY"
+			COMB_API_SECRET = "$COMB_API_SECRET"
+			GIT_URL = "https://github.com/xiaopal/npc-launch-repo.git"
+		}
+	}
 }
 EOF
 docker run -it --rm \
-    -e COMB_API_KEY="$(jq -r .app_key ~/.comb-api.json)" \
-    -e COMB_API_SECRET="$(jq -r .app_secret ~/.comb-api.json)" \
+    -e COMB_API_KEY="$COMB_API_KEY" \
+    -e COMB_API_SECRET="$COMB_API_SECRET" \
     -e COMB_SYNC_INTERVAL=once \
     -v $PWD/infrastructure.conf:/infrastructure.conf \
     xiaopal/npc-launcher:latest
@@ -73,9 +87,9 @@ GIT_URL='<Git配置仓库地址>'
 ```
     // 定义服务
     service "busybox" {
-		// 镜像地址，必需，无状态服务支持更新
-		// * "/library/busybox:latest" 自动扩展为 "hub.c.163.com/library/busybox:latest"
-		// * "//busybox:latest" 自动扩展为 "hub.c.163.com${COMB_REPO_PREFIX}busybox:latest"
+        // 镜像地址，必需，无状态服务支持更新
+        // * "/library/busybox:latest" 自动扩展为 "hub.c.163.com/library/busybox:latest"
+        // * "//busybox:latest" 自动扩展为 "hub.c.163.com${COMB_REPO_PREFIX}busybox:latest"
         image = "/library/busybox:latest" 
         
         // 设置环境变量，无状态服务支持更新
@@ -83,14 +97,14 @@ GIT_URL='<Git配置仓库地址>'
             TZ = "Asia/Shanghai"
         }
 
-		// 绑定的服务端口号，JSON数组，至少包含一项，默认[22]
+        // 绑定的服务端口号，JSON数组，至少包含一项，默认[22]
         // * 默认绑定协议tcp
         // ports = [8500,"8301/tcp","8301/udp"]  
 
-		// 指定创建有状态服务，默认创建无状态服务
-		// stateful = true
+        // 指定创建有状态服务，默认创建无状态服务
+        // stateful = true
 
-		// 容器规格，创建时默认2，无状态服务支持更新
+        // 容器规格，创建时默认2，无状态服务支持更新
         // * 规格选项：1-微小型/CNY0.049/1CPU/640M, 2-小型/CNY0.06/1CPU/1G, 3-中型/CNY0.19/2CPU/2G, 
         // *           4-大型/CNY0.25/2CPU/4G, 5-豪华型/CNY0.52/4CPU/8G, 6-旗舰型/CNY1.02/8CPU/16G, 
         // *           7-超级旗舰型/CNY3.32/16CPU/64G
@@ -99,68 +113,73 @@ GIT_URL='<Git配置仓库地址>'
         // 覆盖命令行
         // command = "/usr/sbin/sshd -D"
 
-		// 副本数，创建时默认1，无状态服务支持更新
+        // 副本数，创建时默认1，无状态服务支持更新
         // replicas = 1
 
-		// 服务依赖
-		// depends = ["service-1", "default.service-3"]
+        // 服务依赖
+        // depends = ["service-1", "default.service-3"]
 
-		// 服务状态检查（可作用于服务依赖）
-		// check http {
-		//     path = "/health"
-		//     port = 9000
-		// }
+        // 服务状态检查（可作用于服务依赖）
+        // check http {
+        //     path = "/health"
+        //     port = 9000
+        // }
 
+        // 绑定外网IP(自动申请IP)
+        // inet_addr = true
+
+        // 绑定外网IP(绑定已有IP)
+        // inet_addr = "xx.xx.xx.xx"
     }
 
     service "busybox-2" {
-		// 继承另一个服务
-		from = "busybox"
+        // 继承另一个服务
+        from = "busybox"
         // ...
     }
 
-	// 服务模板: 不创建服务，允许被其他服务 from 引用
+    // 服务模板: 不创建服务，允许被其他服务 from 引用
     template "consul-tmpl" { 
-		stateful = true
-		image = "/wyzcdevops/zc-consul:latest" 
-		// ...
-    }
-
-	service "consul-instance" { 
-		// 继承服务模板
-		from = "consul-tmpl"
+        stateful = true
+        image = "/wyzcdevops/zc-consul:latest" 
         // ...
     }
 
-	// 服务组：批量定义多个服务
-	// * 该示例展开后相当于定义了相互有依赖关系的三个服务：[consul-a] -(被依赖)-> [consul-b] -(被依赖)-> [consul-c] 
-	// * 	service "consul-a" { 
-	// * 		from = "consul-tmpl"
-	// * 		env {
-	// * 			NPC_GROUP = "consul-a,consul-b,consul-c"
-	// * 			NPC_GROUP_INDEX = "0"
-	// * 			NPC_GROUP_ADDRS = ""
-	// * 		}
-	// *     }
-	// * 	service "consul-b" { 
-	// * 		from = "consul-tmpl"
-	// * 		env {
-	// * 			NPC_GROUP = "consul-a,consul-b,consul-c"
-	// * 			NPC_GROUP_INDEX = "1"
-	// * 			NPC_GROUP_ADDRS = "<consul-a服务内网IP>"
-	// * 		}
-	// *     }
-	// * 	service "consul-c" { 
-	// * 		from = "consul-tmpl"
-	// * 		env {
-	// * 			NPC_GROUP = "consul-a,consul-b,consul-c"
-	// * 			NPC_GROUP_INDEX = "2"
-	// * 			NPC_GROUP_ADDRS = "<consul-a服务内网IP>,<consul-b服务内网IP>"
-	// * 		}
-	// *     }
-	service "consul-{a,b,c}" { 
-		stateful = true
-		from = "consul-tmpl"
+    service "consul-instance" { 
+        // 继承服务模板
+        from = "consul-tmpl"
+        // ...
+    }
+
+    // 服务组：批量定义多个服务
+    // * 该示例展开后相当于定义了相互有依赖关系的三个服务：[consul-a] -(被依赖)-> [consul-b] -(被依赖)-> [consul-c] 
+    // *    service "consul-a" { 
+    // *        from = "consul-tmpl"
+    // *        env {
+    // *            NPC_GROUP = "consul-a,consul-b,consul-c"
+    // *            NPC_GROUP_INDEX = "0"
+    // *            NPC_GROUP_ADDRS = ""
+    // *        }
+    // *     }
+    // *    service "consul-b" { 
+    // *        from = "consul-tmpl"
+    // *        env {
+    // *            NPC_GROUP = "consul-a,consul-b,consul-c"
+    // *            NPC_GROUP_INDEX = "1"
+    // *            NPC_GROUP_ADDRS = "<consul-a服务内网IP>"
+    // *        }
+    // *     }
+    // *    service "consul-c" { 
+    // *        from = "consul-tmpl"
+    // *        env {
+    // *            NPC_GROUP = "consul-a,consul-b,consul-c"
+    // *            NPC_GROUP_INDEX = "2"
+    // *            NPC_GROUP_ADDRS = "<consul-a服务内网IP>,<consul-b服务内网IP>"
+    // *        }
+    // *     }
+    service "consul-{a,b,c}" { 
+        stateful = true
+        from = "consul-tmpl"
     }
 
 ```
