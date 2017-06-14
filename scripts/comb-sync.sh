@@ -118,9 +118,8 @@ init_action(){
 	[ -f $SERVICE_STAGE ] && rm -f $SERVICE_STAGE
 	
 	local SERVICE_STATEFUL SERVICE_ACTION
-	[[ $SERVICE_NAME == *'-vm' ]] && SERVICE_STATEFUL=1
 
-	local JQ_PORTS_TO_MAP='try .ports|map(tostring|split("/")|[(.[0]|tostring),(.[1]//"tcp"|ascii_upcase)])|sort|map({port:.[0], target_port:.[0], protocol:.[1]})'
+	local JQ_PORTS_TO_MAP='try .ports//[22]|map(tostring|split("/")|[(.[0]|tostring),(.[1]//"tcp"|ascii_upcase)])|sort|map({port:.[0], target_port:.[0], protocol:.[1]})'
 
 	local SERVICE_ID CONTAINER_ID
 	local SERVICE_PORTS SERVICE_IMAGE_PATH SERVICE_SPEC_ID SERVICE_REPLICAS SERVICE_ENVS
@@ -135,7 +134,7 @@ init_action(){
 	fi
 
 	local IMAGE_PATH IMAGE_REPO_NAME IMAGE_TAG_NAME TRIGGER UPDATE_READY_SECONDS
-	local SPEC_ID REPLICAS PORTS LOG_DIRS 
+	local SPEC_ID REPLICAS PORTS LOG_DIRS COMMAND
 	local INET_ADDR INET_ADDR_IP
 	local INIT_ENVS ENVS FULL_ENVS
 	local INIT_JOIN INIT_JOIN_WAN
@@ -143,6 +142,8 @@ init_action(){
     local SERVICE_GROUP SERVICE_GROUP_INDEX
 
     if [ -f "$SERVICE_DEF" ]; then
+		[ ! -z "$(jq -r '.stateful|booleans|select(.)' $SERVICE_DEF)" ] && SERVICE_STATEFUL=1
+
 	    SERVICE_GROUP="$(jq -r 'try .group.names|join(",")' $SERVICE_DEF)"
 	    SERVICE_GROUP_INDEX="$(jq -r '.group.index//empty' $SERVICE_DEF)"
 
@@ -164,8 +165,10 @@ init_action(){
 			REPLICAS="$(jq -r '.replicas//empty' $SERVICE_DEF)"
 		fi
 
+		COMMAND="$(jq -r '.command//empty' $SERVICE_DEF)"
+
 		PORTS="$(jq -c "$JQ_PORTS_TO_MAP" $SERVICE_DEF)"
-		LOG_DIRS="$(jq '.logs // ["/app-logs/"]' $SERVICE_DEF)"
+		LOG_DIRS="$(jq '.logs // []' $SERVICE_DEF)"
 
 		if [ ! -z "$SERVICE_STATEFUL" ]; then
 			INET_ADDR="$(jq -r '.inet_addr|strings//booleans|select(.)' $SERVICE_DEF)" 
@@ -221,7 +224,7 @@ init_action(){
 		export SERVICE_ACTION SERVICE_CODE SERVICE_NAME NAMESPACE SERVICE_STATEFUL
 		export SERVICE_ID CONTAINER_ID SERVICE_GROUP
 		export IMAGE_PATH IMAGE_REPO_NAME IMAGE_TAG_NAME TRIGGER UPDATE_READY_SECONDS
-		export SPEC_ID REPLICAS PORTS LOG_DIRS 
+		export SPEC_ID REPLICAS PORTS LOG_DIRS COMMAND
 		export INET_ADDR INET_ADDR_IP
 		export INIT_ENVS ENVS FULL_ENVS
 		export INIT_JOIN INIT_JOIN_WAN INIT_LINKS
@@ -245,6 +248,7 @@ init_action(){
 			replicas : ((try env.REPLICAS | tonumber)//1),
 			port_maps : ((try env.PORTS | fromjson)//[]),
 			log_dirs : ((try env.LOG_DIRS | fromjson)//[]),
+			command : (if env.COMMAND | length>0 then env.COMMAND else null end),
 			envs : ((try env.FULL_ENVS | fromjson)//{}),
 
 			group : env.SERVICE_GROUP,
@@ -463,7 +467,7 @@ update_service(){
 					memory_weight: 100,
 					local_disk_info: [],
 					volume_info:{}
-				}]
+				} + (if .command then {command:.command} else {} end)]
 			}' $SERVICE_STAGE)"
 		echo "[ $(date -R) ] ACTION - CREATE_SERVICE $SERVICE_CODE: $CREATE_SERVICE"
 		api POST /api/v1/microservices "$CREATE_SERVICE" > $SERVICE \
