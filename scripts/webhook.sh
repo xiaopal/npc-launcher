@@ -8,7 +8,7 @@ bad(){
 	echo -e "HTTP/1.0 400 Bad Request\r\nContent-Length: 3\r\n\r\nBAD" && exit 1 
 }
 
-read -t 1 -r LINE && [[ "$LINE" = "POST /webhook"* ]] || bad
+read -t 1 -r LINE && [[ "$LINE" = "POST ${GIT_WEBHOOK_PATH:-/webhook}"* ]] || bad
 
 [ -z "$GIT_WEBHOOK_TOKEN" ] && ok
 

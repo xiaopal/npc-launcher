@@ -6,9 +6,9 @@ FROM alpine:3.5
 # ADD dumb-init.tar.gz /usr/bin
 # ADD jq_1.5_linux_amd64.tar.gz /usr/bin
 # ADD json2hcl_v0.0.6_linux_amd64.tar.gz /usr/bin
+# ADD consul_0.7.5_linux_amd64.tar.gz /usr/bin
 ADD bin-all.tar.gz /
 
 ADD scripts /
 RUN chmod a+x /*.sh
-ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["/launch.sh"]

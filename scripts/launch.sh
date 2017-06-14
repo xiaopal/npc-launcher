@@ -1,4 +1,4 @@
-#! /bin/bash
+#!/usr/bin/dumb-init /bin/bash
 
 INFRA_CONFD=/infrastructure
 INFRA_CONF=/infrastructure.conf
@@ -92,7 +92,9 @@ cleanup() {
 
 COMB_SYNC_INTERVAL=${COMB_SYNC_INTERVAL:-1m}
 while true; do 
-	comb_sync; sleep $COMB_SYNC_INTERVAL
+	comb_sync
+	[ "$COMB_SYNC_INTERVAL" = "once" ] && break
+	sleep $COMB_SYNC_INTERVAL
 done
 
 cleanup
