@@ -4,18 +4,23 @@
 开始使用
 ---
 ```
+COMB_API_KEY='<蜂巢APP_KEY>'
+COMB_API_SECRET='<蜂巢APP_SECRET>'
+# COMB_API_KEY="$(jq -r .app_key ~/.comb-api.json)" 
+# COMB_API_SECRET="$(jq -r .app_secret ~/.comb-api.json)" 
+
 # 启动服务
 docker run -it --rm \
-    -e COMB_API_KEY="<蜂巢APP_KEY>" \
-    -e COMB_API_SECRET="<蜂巢APP_SECRET>" \
+    -e COMB_API_KEY="$COMB_API_KEY" \
+    -e COMB_API_SECRET="$COMB_API_SECRET" \
     -e GIT_URL="https://github.com/xiaopal/npc-launch-repo.git" \
 	-p 9000:9000 \
     xiaopal/npc-launcher:latest
 
 # 指定SSH KEY启动服务
 docker run -it --rm \
-    -e COMB_API_KEY="<蜂巢APP_KEY>" \
-    -e COMB_API_SECRET="<蜂巢APP_SECRET>" \
+    -e COMB_API_KEY="$COMB_API_KEY" \
+    -e COMB_API_SECRET="$COMB_API_SECRET" \
 	-e GIT_URL=ssh://git@g.hz.netease.com:22222/cloud-wyzc/npc-launch-repo.git \
     -v $HOME/.ssh:/.ssh \
 	-p 9000:9000 \
