@@ -33,18 +33,18 @@ COMB_API_KEY='<蜂巢APP_KEY>'
 COMB_API_SECRET='<蜂巢APP_SECRET>'
 cat<<EOF >infrastructure.conf
 namespace "fnd" {
-	// 编排npc-launcher服务
-	service	"npc-launcher" {
-		stateful = true
-		image =	"/xiaopal/npc-launcher:latest"
-		spec = "C1M2S20"
-		ports =	[9000]
-		env {
-			COMB_API_KEY = "$COMB_API_KEY"
-			COMB_API_SECRET = "$COMB_API_SECRET"
-			GIT_URL = "https://github.com/xiaopal/npc-launch-repo.git"
-		}
-	}
+    // 编排npc-launcher服务
+    service "npc-launcher" {
+        stateful = true
+        image = "/xiaopal/npc-launcher:latest"
+        spec = "C1M2S20"
+        ports = [9000]
+        env {
+            COMB_API_KEY = "$COMB_API_KEY"
+            COMB_API_SECRET = "$COMB_API_SECRET"
+            GIT_URL = "https://github.com/xiaopal/npc-launch-repo.git"
+        }
+    }
 }
 EOF
 docker run -it --rm \
